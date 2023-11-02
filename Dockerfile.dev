@@ -43,6 +43,7 @@ RUN git clone --depth 1 https://github.com/home-assistant/hass-release \
 WORKDIR /workspaces
 
 # Install Python dependencies from requirements
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 COPY requirements.txt ./
 COPY homeassistant/package_constraints.txt homeassistant/package_constraints.txt
 RUN pip3 install -r requirements.txt

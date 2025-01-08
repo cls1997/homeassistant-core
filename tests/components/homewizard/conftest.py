@@ -1,75 +1,68 @@
 """Fixtures for HomeWizard integration tests."""
+
 from collections.abc import Generator
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homewizard_energy.models import Data, Device, State, System
+from homewizard_energy.errors import NotFoundError
+from homewizard_energy.v1.models import Data, Device, State, System
 import pytest
 
 from homeassistant.components.homewizard.const import DOMAIN
 from homeassistant.const import CONF_IP_ADDRESS
 from homeassistant.core import HomeAssistant
 
-from tests.common import MockConfigEntry, load_fixture
+from tests.common import MockConfigEntry, get_fixture_path, load_json_object_fixture
 
 
 @pytest.fixture
 def device_fixture() -> str:
-    """Return the device fixture for a specific device."""
-    return "device-HWE-P1.json"
-
-
-@pytest.fixture
-def data_fixture() -> str:
-    """Return the data fixture for a specific device."""
-    return "data-HWE-P1.json"
-
-
-@pytest.fixture
-def state_fixture() -> str:
-    """Return the state fixture for a specific device."""
-    return "state.json"
-
-
-@pytest.fixture
-def system_fixture() -> str:
-    """Return the system fixture for a specific device."""
-    return "system.json"
+    """Return the device fixtures for a specific device."""
+    return "HWE-P1"
 
 
 @pytest.fixture
 def mock_homewizardenergy(
     device_fixture: str,
-    data_fixture: str,
-    state_fixture: str,
-    system_fixture: str,
 ) -> MagicMock:
     """Return a mock bridge."""
-    with patch(
-        "homeassistant.components.homewizard.coordinator.HomeWizardEnergy",
-        autospec=True,
-    ) as homewizard, patch(
-        "homeassistant.components.homewizard.config_flow.HomeWizardEnergy",
-        new=homewizard,
+    with (
+        patch(
+            "homeassistant.components.homewizard.coordinator.HomeWizardEnergyV1",
+            autospec=True,
+        ) as homewizard,
+        patch(
+            "homeassistant.components.homewizard.config_flow.HomeWizardEnergyV1",
+            new=homewizard,
+        ),
     ):
         client = homewizard.return_value
+
         client.device.return_value = Device.from_dict(
-            json.loads(load_fixture(device_fixture, DOMAIN))
+            load_json_object_fixture(f"{device_fixture}/device.json", DOMAIN)
         )
         client.data.return_value = Data.from_dict(
-            json.loads(load_fixture(data_fixture, DOMAIN))
+            load_json_object_fixture(f"{device_fixture}/data.json", DOMAIN)
         )
-        client.state.return_value = State.from_dict(
-            json.loads(load_fixture(state_fixture, DOMAIN))
-        )
-        client.system.return_value = System.from_dict(
-            json.loads(load_fixture(system_fixture, DOMAIN))
-        )
+
+        if get_fixture_path(f"{device_fixture}/state.json", DOMAIN).exists():
+            client.state.return_value = State.from_dict(
+                load_json_object_fixture(f"{device_fixture}/state.json", DOMAIN)
+            )
+        else:
+            client.state.side_effect = NotFoundError
+
+        if get_fixture_path(f"{device_fixture}/system.json", DOMAIN).exists():
+            client.system.return_value = System.from_dict(
+                load_json_object_fixture(f"{device_fixture}/system.json", DOMAIN)
+            )
+        else:
+            client.system.side_effect = NotFoundError
+
         yield client
 
 
 @pytest.fixture
-def mock_setup_entry() -> Generator[AsyncMock, None, None]:
+def mock_setup_entry() -> Generator[AsyncMock]:
     """Mock setting up a config entry."""
     with patch(
         "homeassistant.components.homewizard.async_setup_entry", return_value=True
@@ -84,12 +77,12 @@ def mock_config_entry() -> MockConfigEntry:
         title="Device",
         domain=DOMAIN,
         data={
-            "product_name": "Product name",
-            "product_type": "product_type",
-            "serial": "aabbccddeeff",
+            "product_name": "P1 Meter",
+            "product_type": "HWE-P1",
+            "serial": "5c2fafabcdef",
             CONF_IP_ADDRESS: "127.0.0.1",
         },
-        unique_id="aabbccddeeff",
+        unique_id="HWE-P1_5c2fafabcdef",
     )
 
 
@@ -109,7 +102,7 @@ async def init_integration(
 
 
 @pytest.fixture
-def mock_onboarding() -> Generator[MagicMock, None, None]:
+def mock_onboarding() -> Generator[MagicMock]:
     """Mock that Home Assistant is currently onboarding."""
     with patch(
         "homeassistant.components.onboarding.async_is_onboarded",

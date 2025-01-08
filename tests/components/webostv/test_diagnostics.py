@@ -1,4 +1,5 @@
 """Tests for the diagnostics data provided by LG webOS Smart TV."""
+
 from homeassistant.components.diagnostics import REDACTED
 from homeassistant.core import HomeAssistant
 
@@ -35,7 +36,7 @@ async def test_diagnostics(
                 "in1": {"appId": "app0", "id": "in1", "label": "Input01"},
                 "in2": {"appId": "app1", "id": "in2", "label": "Input02"},
             },
-            "system_info": {"modelName": "TVFAKE"},
+            "system_info": {"modelName": "MODEL"},
             "software_info": {"major_ver": "major", "minor_ver": "minor"},
             "hello_info": {"deviceUUID": "**REDACTED**"},
             "sound_output": "speaker",
@@ -44,8 +45,9 @@ async def test_diagnostics(
         "entry": {
             "entry_id": entry.entry_id,
             "version": 1,
+            "minor_version": 1,
             "domain": "webostv",
-            "title": "fake_webos",
+            "title": "LG webOS TV MODEL",
             "data": {
                 "client_secret": "**REDACTED**",
                 "host": "**REDACTED**",
@@ -56,5 +58,8 @@ async def test_diagnostics(
             "source": "user",
             "unique_id": REDACTED,
             "disabled_by": None,
+            "created_at": entry.created_at.isoformat(),
+            "modified_at": entry.modified_at.isoformat(),
+            "discovery_keys": {},
         },
     }

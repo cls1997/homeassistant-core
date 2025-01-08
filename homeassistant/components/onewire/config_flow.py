@@ -1,18 +1,15 @@
 """Config flow for 1-Wire component."""
+
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import (
-    ConfigEntry,
-    ConfigFlow,
-    OptionsFlowWithConfigEntry,
-)
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry
 
@@ -27,7 +24,7 @@ from .const import (
     OPTION_ENTRY_SENSOR_PRECISION,
     PRECISION_MAPPING_FAMILY_28,
 )
-from .onewirehub import CannotConnect, OneWireHub
+from .onewirehub import CannotConnect, OneWireConfigEntry, OneWireHub
 
 DATA_SCHEMA = vol.Schema(
     {
@@ -37,21 +34,16 @@ DATA_SCHEMA = vol.Schema(
 )
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, str]:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from DATA_SCHEMA with values provided by the user.
-    """
+async def validate_input(
+    hass: HomeAssistant, data: dict[str, Any], errors: dict[str, str]
+) -> None:
+    """Validate the user input allows us to connect."""
 
     hub = OneWireHub(hass)
-
-    host = data[CONF_HOST]
-    port = data[CONF_PORT]
-    # Raises CannotConnect exception on failure
-    await hub.connect(host, port)
-
-    # Return info that you want to store in the config entry.
-    return {"title": host}
+    try:
+        await hub.connect(data[CONF_HOST], data[CONF_PORT])
+    except CannotConnect:
+        errors["base"] = "cannot_connect"
 
 
 class OneWireFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -59,52 +51,64 @@ class OneWireFlowHandler(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        """Initialize 1-Wire config flow."""
-        self.onewire_config: dict[str, Any] = {}
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle 1-Wire config flow start.
-
-        Let user manually input configuration.
-        """
+    ) -> ConfigFlowResult:
+        """Handle 1-Wire config flow start."""
         errors: dict[str, str] = {}
         if user_input:
-            # Prevent duplicate entries
             self._async_abort_entries_match(
-                {
-                    CONF_HOST: user_input[CONF_HOST],
-                    CONF_PORT: user_input[CONF_PORT],
-                }
+                {CONF_HOST: user_input[CONF_HOST], CONF_PORT: user_input[CONF_PORT]}
             )
 
-            self.onewire_config.update(user_input)
-
-            try:
-                info = await validate_input(self.hass, user_input)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            else:
+            await validate_input(self.hass, user_input, errors)
+            if not errors:
                 return self.async_create_entry(
-                    title=info["title"], data=self.onewire_config
+                    title=user_input[CONF_HOST], data=user_input
                 )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=DATA_SCHEMA,
+            data_schema=self.add_suggested_values_to_schema(DATA_SCHEMA, user_input),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle 1-Wire reconfiguration."""
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+        if user_input:
+            self._async_abort_entries_match(
+                {CONF_HOST: user_input[CONF_HOST], CONF_PORT: user_input[CONF_PORT]}
+            )
+
+            await validate_input(self.hass, user_input, errors)
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry, data_updates=user_input
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                DATA_SCHEMA, reconfigure_entry.data | (user_input or {})
+            ),
+            description_placeholders={"name": reconfigure_entry.title},
             errors=errors,
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OnewireOptionsFlowHandler:
+    def async_get_options_flow(
+        config_entry: OneWireConfigEntry,
+    ) -> OnewireOptionsFlowHandler:
         """Get the options flow for this handler."""
         return OnewireOptionsFlowHandler(config_entry)
 
 
-class OnewireOptionsFlowHandler(OptionsFlowWithConfigEntry):
+class OnewireOptionsFlowHandler(OptionsFlow):
     """Handle OneWire Config options."""
 
     configurable_devices: dict[str, str]
@@ -122,9 +126,13 @@ class OnewireOptionsFlowHandler(OptionsFlowWithConfigEntry):
     current_device: str
     """Friendly name of the currently selected device."""
 
+    def __init__(self, config_entry: OneWireConfigEntry) -> None:
+        """Initialize options flow."""
+        self.options = deepcopy(dict(config_entry.options))
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         device_registry = dr.async_get(self.hass)
         self.configurable_devices = {
@@ -136,13 +144,13 @@ class OnewireOptionsFlowHandler(OptionsFlowWithConfigEntry):
         }
 
         if not self.configurable_devices:
-            return self.async_abort(reason="No configurable devices found.")
+            return self.async_abort(reason="no_configurable_devices")
 
         return await self.async_step_device_selection(user_input=None)
 
     async def async_step_device_selection(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Select what devices to configure."""
         errors = {}
         if user_input is not None:
@@ -187,7 +195,7 @@ class OnewireOptionsFlowHandler(OptionsFlowWithConfigEntry):
 
     async def async_step_configure_device(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Config precision option for device."""
         if user_input is not None:
             self._update_device_options(user_input)

@@ -1,20 +1,22 @@
 """Tests for 1-Wire binary sensors."""
+
 from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from . import setup_owproxy_mock_devices
 
+from tests.common import MockConfigEntry
+
 
 @pytest.fixture(autouse=True)
-def override_platforms() -> Generator[None, None, None]:
+def override_platforms() -> Generator[None]:
     """Override PLATFORMS."""
     with patch("homeassistant.components.onewire.PLATFORMS", [Platform.BINARY_SENSOR]):
         yield
@@ -22,7 +24,7 @@ def override_platforms() -> Generator[None, None, None]:
 
 async def test_binary_sensors(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: MockConfigEntry,
     owproxy: MagicMock,
     device_id: str,
     device_registry: dr.DeviceRegistry,
@@ -30,7 +32,7 @@ async def test_binary_sensors(
     snapshot: SnapshotAssertion,
 ) -> None:
     """Test for 1-Wire binary sensors."""
-    setup_owproxy_mock_devices(owproxy, Platform.BINARY_SENSOR, [device_id])
+    setup_owproxy_mock_devices(owproxy, [device_id])
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
 
@@ -46,10 +48,10 @@ async def test_binary_sensors(
     )
     assert entity_entries == snapshot
 
-    setup_owproxy_mock_devices(owproxy, Platform.BINARY_SENSOR, [device_id])
+    setup_owproxy_mock_devices(owproxy, [device_id])
     # Some entities are disabled, enable them and reload before checking states
     for ent in entity_entries:
-        entity_registry.async_update_entity(ent.entity_id, **{"disabled_by": None})
+        entity_registry.async_update_entity(ent.entity_id, disabled_by=None)
     await hass.config_entries.async_reload(config_entry.entry_id)
     await hass.async_block_till_done()
 

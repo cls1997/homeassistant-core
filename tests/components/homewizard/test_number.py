@@ -1,4 +1,5 @@
 """Test the number entity for HomeWizard."""
+
 from unittest.mock import MagicMock
 
 from homewizard_energy.errors import DisabledError, RequestError
@@ -16,9 +17,12 @@ import homeassistant.util.dt as dt_util
 
 from tests.common import async_fire_time_changed
 
+pytestmark = [
+    pytest.mark.usefixtures("init_integration"),
+]
 
-@pytest.mark.usefixtures("init_integration")
-@pytest.mark.parametrize("device_fixture", ["device-HWE-SKT.json"])
+
+@pytest.mark.parametrize("device_fixture", ["HWE-SKT-11", "HWE-SKT-21"])
 async def test_number_entities(
     hass: HomeAssistant,
     device_registry: dr.DeviceRegistry,
@@ -61,10 +65,13 @@ async def test_number_entities(
     )
 
     assert len(mock_homewizardenergy.state_set.mock_calls) == 1
-    mock_homewizardenergy.state_set.assert_called_with(brightness=127)
+    mock_homewizardenergy.state_set.assert_called_with(brightness=129)
 
     mock_homewizardenergy.state_set.side_effect = RequestError
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(
+        HomeAssistantError,
+        match=r"^An error occurred while communicating with HomeWizard device$",
+    ):
         await hass.services.async_call(
             number.DOMAIN,
             SERVICE_SET_VALUE,
@@ -76,7 +83,10 @@ async def test_number_entities(
         )
 
     mock_homewizardenergy.state_set.side_effect = DisabledError
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(
+        HomeAssistantError,
+        match=r"^The local API is disabled$",
+    ):
         await hass.services.async_call(
             number.DOMAIN,
             SERVICE_SET_VALUE,
@@ -86,3 +96,11 @@ async def test_number_entities(
             },
             blocking=True,
         )
+
+
+@pytest.mark.parametrize(
+    "device_fixture", ["HWE-P1", "HWE-WTR", "SDM230", "SDM630", "HWE-KWH1", "HWE-KWH3"]
+)
+async def test_entities_not_created_for_device(hass: HomeAssistant) -> None:
+    """Does not load number when device has no support for it."""
+    assert not hass.states.get("number.device_status_light_brightness")
